@@ -1,0 +1,98 @@
+provider "aws" {
+  region = "ap-south-1"
+}
+
+# This provider is required for attachment only installation in another AWS Account.
+provider "aws" {
+  region = "ap-south-1"
+  alias  = "prod"
+  assume_role {
+    role_arn = "arn:aws:iam::150567456321:role/terraform-infrastructure-role"
+
+}
+
+/*
+
+data "aws_vpc" "selected" {
+  filter {
+    name   = "tag:Name"
+    values = ["vpc1"]
+  }
+
+}
+
+
+data "aws_subnet_ids" "this" {
+  vpc_id = data.aws_vpc.selected.id
+}
+
+
+*/
+module "tgw_peer" {
+  # This is optional and connects to another account. Meaning you need to be authenticated with 2 separate AWS Accounts
+  source = "terraform-aws-modules/transit-gateway/aws"
+
+  providers = {
+    aws = aws.prod
+  }
+
+  name            = "my-tgw-peer"
+  description     = "My TGW shared with several other AWS accounts"
+  amazon_side_asn = 64532
+
+  share_tgw                             = true
+  create_tgw                            = false
+  ram_resource_share_arn                = "arn:aws:ram:ap-south-1:150567456321:resource-share/687fef19-167c-45e7-b658-cdb46c369c1b"
+  enable_auto_accept_shared_attachments = true # When "true" there is no need for RAM resources if using multiple AWS accounts
+
+  vpc_attachments = {
+    vpc1 = {
+     tgw_id                                          = "tgw-006952930b60e9264" 
+      vpc_id                                          = module.vpc1.vpc_id
+      #vpc_id                                          = data.aws_vpc.selected.id      # module.vpc1.vpc_id
+      #subnet_ids                                      = data.aws_subnet_ids.this.ids # module.vpc1.private_subnets
+      subnet_ids                                      = module.vpc1.private_subnets
+      dns_support                                     = true
+      #ipv6_support                                    = true
+     # transit_gateway_default_route_table_association = false
+     # transit_gateway_default_route_table_propagation = false
+     # transit_gateway_route_table_id = "tgw-rtb-0781512365dfd19e0"
+     # tgw_routes = [
+     #   {
+     #     destination_cidr_block = "30.0.0.0/16"
+     #   },
+     #   {
+     #     blackhole = true
+     #     destination_cidr_block = "40.0.0.0/20"
+     #   }
+     # ]
+
+
+    }
+  }
+
+  ram_allow_external_principals = true
+  ram_principals                = [773914189848]
+
+  tags = {
+    Purpose = "tgw-complete-example"
+  }
+}
+
+
+module "vpc1" {
+  source  = "./vpc-module"
+  name = "my-vpc"
+  cidr = "10.1.0.0/16"
+  azs             = ["ap-south-1a", "ap-south-1b", "ap-south-1c"]
+  private_subnets = ["10.1.1.0/24", "10.1.2.0/24", "10.1.3.0/24"]
+  enable_ipv6                                    = true
+  private_subnet_assign_ipv6_address_on_creation = true
+  private_subnet_ipv6_prefixes                   = [0, 1, 2]
+  tgw-route-cidr                                 = "10.10.0.0/16"
+  transit_gateway_id                             = "tgw-006952930b60e9264"
+  tags = {
+    Name = "vpc1"
+  }
+}
+
