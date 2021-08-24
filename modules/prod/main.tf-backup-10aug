@@ -1,0 +1,783 @@
+provider "aws" {
+  region = "us-east-1"
+}
+/*
+provider "aws" {
+  region = "us-east-1"
+  alias  = "mark"
+   assume_role {
+     role_arn = "arn:aws:iam::530420366225:role/automation-to-mark-dr"
+  }
+}
+*/
+provider "aws" {
+  alias                   = "chcs-shared-1"
+  region                  = "us-east-1"
+  assume_role {
+    role_arn = "arn:aws:iam::279108474419:role/transit-to-shared"
+  }
+}
+
+provider "aws" {
+  alias                   = "chcs-transit"
+  region                  = "us-east-1"
+  assume_role {
+    role_arn = "arn:aws:iam::205266265424:role/transit-to-transit"
+  }
+}
+provider "aws" {
+  region = "us-east-1"
+  alias  = "chcs-prod"
+   assume_role {
+     role_arn = "arn:aws:iam::682258877194:role/transit-to-prod"
+  }
+}
+
+provider "aws" {
+  region = "us-east-1"
+  alias  = "chcs-non-prod"
+   assume_role {
+     role_arn = "arn:aws:iam::551294210778:role/transit-to-non-prod"
+  }
+}
+
+/*
+data "aws_caller_identity" "mark" {
+  provider = aws.mark
+}
+
+data "aws_caller_identity" "chcs-shared-1" {
+ provider = aws.chcs-shared-1
+}
+
+data "aws_caller_identity" "chcs-transit" {
+ provider = aws.chcs-transit
+}
+
+data "aws_caller_identity" "chcs-non-prod" {
+ provider = aws.chcs-non-prod
+}
+data "aws_caller_identity" "chcs-prod" {
+ provider = aws.chcs-prod
+}
+*/
+#################################################################
+# TRANSIT GATEWAY IN TRANSIT ACCOUNT
+#################################################################
+
+module "tgw" {
+  source = "terraform-aws-modules/transit-gateway/aws"
+  providers = {
+    aws = aws.chcs-transit
+  }
+
+  name            = "TGW-TRANSIT-ACCOUNT-PROD"
+  description     = "My TGW shared with several other AWS accounts"
+  amazon_side_asn = 64532
+
+  enable_auto_accept_shared_attachments = true # When "true" there is no need for RAM resources if using multiple AWS accounts
+  vpc_attachments = {
+    INSPECTION-VPC-TRANSIT-PROD = {
+      vpc_id     = module.INSPECTION-VPC-TRANSIT-PROD.vpc_id
+      subnet_ids = module.INSPECTION-VPC-TRANSIT-PROD.private_subnets
+    }
+  }
+  ram_allow_external_principals = true
+  ram_principals                = [682258877194, 551294210778, 530420366225, 279108474419]
+  tags = {
+    Purpose = "tgw-complete-example"
+  }
+}
+
+################################################################################
+# TRANSIT GATEWAY IN PROD ACCOUNT
+################################################################################
+
+module "tgw_peer_prod" {
+  source = "terraform-aws-modules/transit-gateway/aws"
+  providers = {
+    aws = aws.chcs-prod
+  }
+  name            = "TGW-PEER-PROD"
+  description     = "My TGW shared with several other AWS accounts"
+  amazon_side_asn = 64532
+  share_tgw                             = true
+  create_tgw                            = false
+  ram_resource_share_arn                = module.tgw.ram_resource_share_id
+  enable_auto_accept_shared_attachments = true # When "true" there is no need for RAM resources if using multiple AWS accounts
+  vpc_attachments = {
+    SHARED-CHCS-VPC-PROD = {
+      tgw_id                                          = module.tgw.ec2_transit_gateway_id
+      vpc_id                                          = module.SHARED-CHCS-VPC-PROD.vpc_id
+      subnet_ids                                      = module.SHARED-CHCS-VPC-PROD.public_subnets_0
+      dns_support                                     = true
+    },
+    HIPAA-CHCS-VPC-PROD = {
+      tgw_id                                          = module.tgw.ec2_transit_gateway_id
+      vpc_id                                          = module.HIPAA-CHCS-VPC-PROD.vpc_id
+      subnet_ids                                      = module.HIPAA-CHCS-VPC-PROD.public_subnets_0
+      dns_support                                     = true
+    }
+  }
+
+  ram_allow_external_principals = true
+  ram_principals                = [682258877194]
+  tags = {
+    Purpose = "tgw-complete-example"
+  }
+}
+
+################################################################################
+# TRANSIT GATEWAY IN NON-PROD ACCOUNT
+################################################################################
+
+module "tgw_peer_nonprod" {
+  source = "terraform-aws-modules/transit-gateway/aws"
+  providers = {
+    aws = aws.chcs-non-prod
+  }
+  name            = "TGW-PEER-NON-PROD"
+  description     = "My TGW shared with several other AWS accounts"
+  amazon_side_asn = 64532
+  share_tgw                             = true
+  create_tgw                            = false
+  ram_resource_share_arn                = module.tgw.ram_resource_share_id
+  enable_auto_accept_shared_attachments = true # When "true" there is no need for RAM resources if using multiple AWS accounts
+  vpc_attachments = {
+    PCI-CHCS-VPC-NON-PROD = {
+      tgw_id                                          = module.tgw.ec2_transit_gateway_id
+      vpc_id                                          = module.PCI-CHCS-VPC-NON-PROD.vpc_id
+      subnet_ids                                      = module.PCI-CHCS-VPC-NON-PROD.public_subnets_0
+      dns_support                                     = true
+    },
+    HIPAA-CHCS-VPC-NON-PROD = {
+      tgw_id                                          = module.tgw.ec2_transit_gateway_id
+      vpc_id                                          = module.HIPAA-CHCS-VPC-NON-PROD.vpc_id
+      subnet_ids                                      = module.HIPAA-CHCS-VPC-NON-PROD.public_subnets_0
+      dns_support                                     = true
+    },
+    DEV-QA-UAT-CHCS-VPC-NON-PROD = {
+      tgw_id                                          = module.tgw.ec2_transit_gateway_id
+      vpc_id                                          = module.DEV-QA-UAT-CHCS-VPC-NON-PROD.vpc_id
+      subnet_ids                                      = module.DEV-QA-UAT-CHCS-VPC-NON-PROD.public_subnets_0
+      dns_support                                     = true
+    }
+  }
+
+  ram_allow_external_principals = true
+  ram_principals                = [551294210778]
+  tags = {
+    Purpose = "tgw-complete-example"
+  }
+}
+
+#############################################################################
+# TRANSIT GATEWAY IN PCI CHCS ACCOUNT
+#############################################################################
+/*
+module "tgw_peer_pci" {
+  source = "terraform-aws-modules/transit-gateway/aws"
+  providers = {
+    aws = aws.mark
+  }
+  name            = "TGW-PEER-PROD"
+  description     = "My TGW shared with several other AWS accounts"
+  amazon_side_asn = 64532
+  share_tgw                             = true
+  create_tgw                            = false
+  ram_resource_share_arn                = module.tgw.ram_resource_share_id
+  enable_auto_accept_shared_attachments = true # When "true" there is no need for RAM resources if using multiple AWS accounts
+  vpc_attachments = {
+    PCI-CHCS-VPC-PCI = {
+      tgw_id                                          = module.tgw.ec2_transit_gateway_id
+      vpc_id                                          = module.PCI-CHCS-VPC-PCI.vpc_id
+      subnet_ids                                      = module.PCI-CHCS-VPC-PCI.public_subnets_0
+      dns_support                                     = true
+    }
+  }
+
+  ram_allow_external_principals = true
+  #ram_principals                = [150567456321]
+  ram_principals                = [530420366225]
+  tags = {
+    Purpose = "tgw-complete-example"
+  }
+}
+*/
+#############################################################################
+# SHARED SERVICE ACCOUNT
+#############################################################################
+
+module "tgw_peer_shared" {
+  source = "terraform-aws-modules/transit-gateway/aws"
+  providers = {
+    aws = aws.chcs-shared-1
+  }
+  name            = "TGW-PEER-SHARED"
+  description     = "My TGW shared with several other AWS accounts"
+  amazon_side_asn = 64532
+  share_tgw                             = true
+  create_tgw                            = false
+  ram_resource_share_arn                = module.tgw.ram_resource_share_id
+  enable_auto_accept_shared_attachments = true # When "true" there is no need for RAM resources if using multiple AWS accounts
+  vpc_attachments = {
+    SHARED-SERVICE-CHCS-VPC = {
+      tgw_id                                          = module.tgw.ec2_transit_gateway_id
+      vpc_id                                          = module.SHARED-SERVICE-CHCS-VPC.vpc_id
+      subnet_ids                                      = module.SHARED-SERVICE-CHCS-VPC.public_subnets_0
+      dns_support                                     = true
+    },
+    BASTION-VPC-SHARED-SERVICE = {
+      tgw_id                                          = module.tgw.ec2_transit_gateway_id
+      vpc_id                                          = module.BASTION-VPC-SHARED-SERVICE.vpc_id
+      subnet_ids                                      = module.BASTION-VPC-SHARED-SERVICE.public_subnets_0
+      dns_support                                     = true
+    }
+  }
+
+  ram_allow_external_principals = true
+  ram_principals                = [279108474419]
+  tags = {
+    Purpose = "tgw-complete-example"
+  }
+}
+
+###########################################################################################
+#TRANSIT ACCOUNT VPC PROD
+###########################################################################################
+
+module "INSPECTION-VPC-TRANSIT-PROD" {
+  source  = "./../modules/vpc-module"
+  name = "INSPECTION-VPC-TRANSIT-PROD"
+  cidr = "10.3.0.0/16"
+  azs             = ["us-east-1a", "us-east-1b"]
+  private_subnets = ["10.3.10.128/26", "10.3.10.192/26"]
+  public_subnets  = ["10.3.10.0/26", "10.3.10.64/26"]
+
+  tgw-route-cidr-1                                 = "10.40.0.0/16"
+  tgw-route-cidr-2                                 = "10.45.0.0/16"
+  tgw-route-cidr-3                                 = "10.50.0.0/16"
+  tgw-route-cidr-4                                 = "10.20.0.0/16"
+  tgw-route-cidr-5                                 = "10.25.0.0/16"
+  tgw-route-cidr-6                                 = "10.30.0.0/16"
+  tgw-route-cidr-7                                 = "10.10.0.0/16"
+  tgw-route-cidr-8                                 = "192.168.0.0/24"
+ 
+  transit_gateway_id                             = module.tgw.ec2_transit_gateway_id
+  providers = {
+    aws.dst = aws.chcs-transit
+  }
+}
+
+
+
+###########################################################################################
+#PROD ACCOUNT VPC
+###########################################################################################
+
+module "SHARED-CHCS-VPC-PROD" {
+  source  = "./../modules/vpc-module"
+  name = "SHARED-CHCS-VPC-PROD"
+  cidr = "10.45.0.0/16"
+  azs             = ["us-east-1a", "us-east-1b"]
+  private_subnets = ["10.45.10.128/26", "10.45.10.192/26", "10.45.30.128/26" , "10.45.30.192/26", "10.45.40.128/26", "10.45.40.192/26"]
+  public_subnets  = ["10.45.10.0/26", "10.45.10.64/26", "10.45.30.0/26", "10.45.30.64/26", "10.45.40.0/26", "10.45.40.64/26"]
+
+  tgw-route-cidr-1                                 = "10.40.0.0/16"
+  tgw-route-cidr-2                                 = "10.50.0.0/16"
+  tgw-route-cidr-3                                 = "10.20.0.0/16"
+  tgw-route-cidr-4                                 = "10.25.0.0/16"
+  tgw-route-cidr-5                                 = "10.30.0.0/16"
+  tgw-route-cidr-6                                 = "10.3.0.0/16"
+  tgw-route-cidr-7                                 = "10.10.0.0/16"
+  tgw-route-cidr-8                                 = "192.168.0.0/24"
+  
+  transit_gateway_id                               = module.tgw.ec2_transit_gateway_id
+  providers = {
+    aws.dst = aws.chcs-prod
+  }
+}
+module "HIPAA-CHCS-VPC-PROD" {
+  source  = "./../modules/vpc-module"
+  name = "HIPAA-CHCS-VPC-PROD"
+  cidr = "10.50.0.0/16"
+  azs             = ["us-east-1a", "us-east-1b"]
+  private_subnets = ["10.50.10.128/26", "10.50.10.192/26"]
+  public_subnets  = ["10.50.10.0/26", "10.50.10.64/26"]
+
+  tgw-route-cidr-1                                 = "10.40.0.0/16"
+  tgw-route-cidr-2                                 = "10.45.0.0/16"
+  tgw-route-cidr-3                                 = "10.20.0.0/16"
+  tgw-route-cidr-4                                 = "10.25.0.0/16"
+  tgw-route-cidr-5                                 = "10.30.0.0/16"
+  tgw-route-cidr-6                                 = "10.3.0.0/16"
+  tgw-route-cidr-7                                 = "10.10.0.0/16"
+  tgw-route-cidr-8                                 = "192.168.0.0/24"
+  
+  transit_gateway_id                               = module.tgw.ec2_transit_gateway_id
+  providers = {
+    aws.dst = aws.chcs-prod
+  }
+}
+
+
+##########################################################################################
+# NON-PROD ACCOUNT VPC
+#########################################################################################
+module "PCI-CHCS-VPC-NON-PROD" {
+  source  = "./../modules/vpc-module"
+  name = "PCI-CHCS-VPC-NON-PROD"
+  cidr = "10.20.0.0/16"
+  azs             = ["us-east-1a", "us-east-1b"]
+  public_subnets  = ["10.20.20.0/26", "10.20.20.64/26"]
+  private_subnets = ["10.20.20.128/26", "10.20.20.192/26"]
+
+  tgw-route-cidr-1                               = "10.40.0.0/16"
+  tgw-route-cidr-2                               = "10.45.0.0/16"
+  tgw-route-cidr-3                               = "10.50.0.0/16"
+  tgw-route-cidr-4                               = "10.25.0.0/16"
+  tgw-route-cidr-5                               = "10.30.0.0/16"
+  tgw-route-cidr-6                               = "10.3.0.0/16"
+  tgw-route-cidr-7                               = "10.10.0.0/16"
+  tgw-route-cidr-8                               = "192.168.0.0/24"
+  
+  transit_gateway_id                             = module.tgw.ec2_transit_gateway_id
+   providers = {
+    aws.dst = aws.chcs-non-prod
+  }
+}
+
+module "HIPAA-CHCS-VPC-NON-PROD" {
+  source  = "./../modules/vpc-module"
+  name = "HIPAA-CHCS-VPC-NON-PROD"
+  cidr = "10.25.0.0/16"
+  azs             = ["us-east-1a", "us-east-1b"]
+  public_subnets  = ["10.25.20.0/26", "10.25.20.64/26", "10.25.30.0/26", "10.25.30.64/26"]
+  private_subnets = ["10.25.20.128/26", "10.25.20.192/26", "10.25.30.128/26", "10.25.30.192/26"]
+
+  tgw-route-cidr-1                                 = "10.40.0.0/16"
+  tgw-route-cidr-2                                 = "10.45.0.0/16"
+  tgw-route-cidr-3                                 = "10.50.0.0/16"
+  tgw-route-cidr-4                                 = "10.20.0.0/16"
+  tgw-route-cidr-5                                 = "10.30.0.0/16"
+  tgw-route-cidr-6                                 = "10.3.0.0/16"
+  tgw-route-cidr-7                                 = "10.10.0.0/16"
+  tgw-route-cidr-8                                 = "192.168.0.0/24"
+ 
+  transit_gateway_id                               = module.tgw.ec2_transit_gateway_id
+   providers = {
+    aws.dst = aws.chcs-non-prod
+  }
+}
+module "DEV-QA-UAT-CHCS-VPC-NON-PROD" {
+  source  = "./../modules/vpc-module"
+  name = "DEV-QA-UAT-CHCS-VPC-NON-PROD"
+  cidr = "10.30.0.0/16"
+  azs             = ["us-east-1a", "us-east-1b"]
+  public_subnets  = ["10.30.20.0/26", "10.30.20.64/26"]
+  private_subnets = ["10.30.20.128/26", "10.30.20.192/26"]
+
+  tgw-route-cidr-1                                 = "10.40.0.0/16"
+  tgw-route-cidr-2                                 = "10.45.0.0/16"
+  tgw-route-cidr-3                                 = "10.50.0.0/16"
+  tgw-route-cidr-4                                 = "10.20.0.0/16"
+  tgw-route-cidr-5                                 = "10.25.0.0/16"
+  tgw-route-cidr-6                                 = "10.3.0.0/16"
+  tgw-route-cidr-7                                 = "10.10.0.0/16"
+  tgw-route-cidr-8                                 = "192.168.0.0/24"
+ 
+  transit_gateway_id                               = module.tgw.ec2_transit_gateway_id
+  providers = {
+    aws.dst = aws.chcs-non-prod
+  }
+}
+
+####################################################################
+# PCI CHCS ACCOUNT
+####################################################################
+/*
+module "PCI-CHCS-VPC-PCI" {
+  source  = "./../modules/vpc-module"
+  name = "PCI-CHCS-VPC-PCI"
+  cidr = "10.40.0.0/16"
+  azs             = ["us-east-1a", "us-east-1b"]
+  private_subnets = ["10.40.10.128/26", "10.40.10.192/26", "10.40.30.128/26" , "10.40.30.192/26"]
+  public_subnets  = ["10.40.10.0/26", "10.40.10.64/26", "10.40.30.0/26", "10.40.30.64/26"]
+  
+  tgw-route-cidr-1                                 = "10.45.0.0/16"
+  tgw-route-cidr-2                                 = "10.50.0.0/16"
+  tgw-route-cidr-3                                 = "10.20.0.0/16"
+  tgw-route-cidr-4                                 = "10.25.0.0/16"
+  tgw-route-cidr-5                                 = "10.30.0.0/16"
+  tgw-route-cidr-6                                 = "10.3.0.0/16"
+  tgw-route-cidr-7                                 = "10.10.0.0/16"
+  tgw-route-cidr-8                                 = "192.168.0.0/24"
+
+  transit_gateway_id                             = module.tgw.ec2_transit_gateway_id
+  providers = {
+    aws.dst = aws.mark
+  }
+}
+*/
+####################################################################
+# SHARED SERVICE ACCOUNT
+####################################################################
+
+module "SHARED-SERVICE-CHCS-VPC" {
+  source  = "./../modules/vpc-module"
+  name = "SHARED-SERVICE-CHCS-VPC"
+  cidr = "10.10.0.0/16"
+  azs             = ["us-east-1a", "us-east-1b"]
+  public_subnets = ["10.10.20.0/26", "10.10.20.64/26", "10.10.30.0/26", "10.10.30.64/26"]
+  private_subnets  = ["10.10.20.128/26", "10.10.20.192/26", "10.10.30.128/26", "10.10.30.192/26"]
+
+  tgw-route-cidr-1                                 = "10.45.0.0/16"
+  tgw-route-cidr-2                                 = "10.50.0.0/16"
+  tgw-route-cidr-3                                 = "10.20.0.0/16"
+  tgw-route-cidr-4                                 = "10.25.0.0/16"
+  tgw-route-cidr-5                                 = "10.30.0.0/16"
+  tgw-route-cidr-6                                 = "10.40.0.0/16"
+  tgw-route-cidr-7                                 = "10.3.0.0/16"
+  tgw-route-cidr-8                                 = "192.168.0.0/24"
+
+  transit_gateway_id                             = module.tgw.ec2_transit_gateway_id
+  providers = {
+    aws.dst = aws.chcs-shared-1
+  }
+}
+
+module "BASTION-VPC-SHARED-SERVICE" {
+  source  = "./../modules/vpc-module"
+  name = "BASTION-VPC-SHARED-SERVICE"
+  cidr = "192.168.0.0/24"
+  azs             = ["us-east-1a", "us-east-1b"]
+  public_subnets  = ["192.168.0.0/26", "192.168.0.64/26"]
+
+  tgw-route-cidr-1                                 = "10.45.0.0/16"
+  tgw-route-cidr-2                                 = "10.50.0.0/16"
+  tgw-route-cidr-3                                 = "10.20.0.0/16"
+  tgw-route-cidr-4                                 = "10.25.0.0/16"
+  tgw-route-cidr-5                                 = "10.30.0.0/16"
+  tgw-route-cidr-6                                 = "10.40.0.0/16"
+  tgw-route-cidr-7                                 = "10.3.0.0/16"
+  tgw-route-cidr-8                                 = "10.10.0.0/16"
+
+  transit_gateway_id                             = module.tgw.ec2_transit_gateway_id
+  providers = {
+    aws.dst = aws.chcs-shared-1
+  }
+}
+
+
+##############################################################
+# SG FOR PROD ACCOUNT
+##############################################################
+
+module "sg-tgw" {
+  source = "./../modules/aws-sg-tgw"
+  security_group_name = "TGW-sg"
+  vpc_id = module.HIPAA-CHCS-VPC-PROD.vpc_id
+
+  # Rule-1
+  ingress-rule-1-from-port = 22
+  ingress-rule-1-to-port = 22
+  ingress-rule-1-protocol = "tcp"
+  ingress-rule-1-cidrs = ["0.0.0.0/0"]
+  ingress-rule-1-description = "SHH PORT"
+
+
+  # Rule-3
+  ingress-rule-3-from-port   = -1
+  ingress-rule-3-to-port     = -1
+  ingress-rule-3-protocol    = "icmp"
+  ingress-rule-3-cidrs       = ["0.0.0.0/0"]
+  ingress-rule-3-description = "Ingress Rule"
+  providers = {
+    aws.dst = aws.chcs-prod
+  }
+}
+
+#################################################################
+# SG FOR NON-PROD ACCOUNT
+#################################################################
+
+module "sg-tgw-1" {
+  source = "./../modules/aws-sg-tgw"
+  security_group_name = "TGW-sg"
+  vpc_id = module.PCI-CHCS-VPC-NON-PROD.vpc_id
+
+  # Rule-1
+  ingress-rule-1-from-port = 22
+  ingress-rule-1-to-port = 22
+  ingress-rule-1-protocol = "tcp"
+  ingress-rule-1-cidrs = ["0.0.0.0/0"]
+  ingress-rule-1-description = "SHH PORT"
+
+
+  # Rule-3
+  ingress-rule-3-from-port   = -1
+  ingress-rule-3-to-port     = -1
+  ingress-rule-3-protocol    = "icmp"
+  ingress-rule-3-cidrs       = ["0.0.0.0/0"]
+  ingress-rule-3-description = "Ingress Rule"
+  providers = {
+    aws.dst = aws.chcs-non-prod
+  }
+}
+
+# EC2-Public
+
+module "ec2-transit-gateway-public" {
+  source                        = "./../modules/aws-ec2"
+  key_name                      = "transit-gateway-mark-1"
+  public_key                    = file("./niba.pub")
+  instance_count                = 1
+  ami                           = "ami-0dc2d3e4c0f9ebd18"
+  instance_type                 = "t2.micro"
+  associate_public_ip_address   = "true"
+   root_volume_size              = 8
+  subnet_ids                    = module.HIPAA-CHCS-VPC-PROD.public_subnets
+  vpc_security_group_ids        = [module.sg-tgw.aws_security_group]
+  iam_instance_profile          = module.s3-role-chcs-prod.aws_iam_s3_role
+  ec2_tags = "HIPAA-VPC-PROD-EC2-VM1"
+  providers = {
+    aws.dst = aws.chcs-prod
+  }
+  
+}
+
+module "ec2-private-mark" {
+  source                        = "./../modules/aws-ec2"
+  key_name                      = "transit-gateway-mark"
+  public_key                    = file("./niba-prv.pub")
+  instance_count                = 1
+  ami                           = "ami-0dc2d3e4c0f9ebd18"
+  instance_type                 = "t2.micro"
+  associate_public_ip_address   = "false"
+  root_volume_size              = 8
+  subnet_ids                    = module.HIPAA-CHCS-VPC-PROD.private_subnets
+  vpc_security_group_ids        = [module.sg-tgw.aws_security_group]
+  iam_instance_profile          = module.s3-role-chcs-prod.aws_iam_s3_role
+  ec2_tags = "MARK-EC2-VM1-PRIVATE"
+  providers = {
+    aws.dst = aws.chcs-prod
+  }
+}
+
+module "ec2-transit-gateway-public-1" {
+  source                        = "./../modules/aws-ec2"
+  key_name                      = "transit-gateway-chris-1"
+  public_key                    = file("./niba.pub")
+  instance_count                = 1
+  ami                           = "ami-0dc2d3e4c0f9ebd18"
+  instance_type                 = "t2.micro"
+  associate_public_ip_address   = "true"
+  root_volume_size              = 8
+  subnet_ids                    = module.PCI-CHCS-VPC-NON-PROD.public_subnets
+  vpc_security_group_ids        = [module.sg-tgw-1.aws_security_group]
+  iam_instance_profile          = module.s3-role-chcs-non-prod.aws_iam_s3_role
+  ec2_tags = "CHRIS-EC2-VM1"
+  providers = {
+    aws.dst = aws.chcs-non-prod
+  }
+}
+     
+module "ec2-private-chris" {
+  source                        = "./../modules/aws-ec2"
+  key_name                      = "transit-gateway-chris"
+  public_key                    = file("./niba-prv.pub")
+  instance_count                = 1
+  ami                           = "ami-0dc2d3e4c0f9ebd18"
+  instance_type                 = "t2.micro"
+  associate_public_ip_address   = "false"
+  root_volume_size              = 8
+  subnet_ids                    = module.PCI-CHCS-VPC-NON-PROD.private_subnets
+  vpc_security_group_ids        = [module.sg-tgw-1.aws_security_group]
+  iam_instance_profile          = module.s3-role-chcs-non-prod.aws_iam_s3_role
+  ec2_tags = "CHRIS-EC2-VM1-PRIVATE"
+  providers = {
+    aws.dst = aws.chcs-non-prod
+  }
+}
+
+##############################################################################
+# DR S3 ROLE FOR PROD ACCOUNT
+###########################################################################
+
+module "s3-role-chcs-prod" {
+  source     ="./../modules/s3-role"
+  iam_role_name  =  ["s3-role-prod"] 
+  iam_policy_name =  ["iam-policy-prod"]
+  iam_policy_attachment_name = ["iam-attachment-policy-prod"]
+  iam_instance_profile_name = ["iam-instance-profile-prod"]
+  providers = {
+    aws = aws.chcs-prod
+  }
+}
+
+##############################################################################
+# DR S3 ROLE FOR NON-PROD ACCOUNT
+###########################################################################
+
+module "s3-role-chcs-non-prod" {
+  source     ="./../modules/s3-role"
+  
+  iam_role_name  =  ["s3-role-prod"] 
+  iam_policy_name =  ["iam-policy-prod"]
+  iam_policy_attachment_name = ["iam-attachment-policy-prod"]
+  iam_instance_profile_name = ["iam-instance-profile-prod"]
+  providers = {
+    aws = aws.chcs-non-prod
+  }
+}
+
+#########################################################################
+# DR VPC ENDPOINT FOR PROD ACCOUNT
+#########################################################################
+
+module "SHARED-CHCS-VPC-PROD-ENDPOINT" {
+  source = "./../modules/vpc-endpoints"
+  vpc_id = module.SHARED-CHCS-VPC-PROD.vpc_id
+  vpc-gateway-endpoint = "S3-SHARED-CHCS-VPC-NON-PROD-ENDPOINT"
+  gateway_vpc_endpoints = {
+    "s3" = {
+      name = "s3"
+      policy = jsonencode({
+        Version = "2012-10-17"
+        Statement = [
+          {
+            Action = [
+              "s3:*",
+            ]
+            Effect    = "Allow"
+            Principal = "*"
+            Resource  = "*"
+          },
+        ]
+      })
+      route_table_ids     = module.SHARED-CHCS-VPC-PROD.private_route_table_ids
+    }
+  }
+ providers = {
+    aws = aws.chcs-prod
+   }
+}
+
+module "HIPAA-CHCS-VPC-PROD-ENDPOINT" {
+  source = "./../modules/vpc-endpoints"
+  vpc_id = module.HIPAA-CHCS-VPC-PROD.vpc_id
+  vpc-gateway-endpoint = "S3-HIPAA-CHCS-VPC-NON-PROD-ENDPOINT"
+  gateway_vpc_endpoints = {
+    "s3" = {
+      name = "s3"
+      policy = jsonencode({
+        Version = "2012-10-17"
+        Statement = [
+          {
+            Action = [
+              "s3:*",
+            ]
+            Effect    = "Allow"
+            Principal = "*"
+            Resource  = "*"
+          },
+        ]
+      })
+      route_table_ids     = module.HIPAA-CHCS-VPC-PROD.private_route_table_ids
+    }
+  }
+ providers = {
+    aws = aws.chcs-prod
+   }
+}
+
+
+#########################################################################
+# VPC ENDPOINT FOR NON-PROD ACCOUNT
+#########################################################################
+
+module "PCI-CHCS-VPC-NON-PROD-ENDPOINT" {
+  source = "./../modules/vpc-endpoints"
+  vpc_id = module.PCI-CHCS-VPC-NON-PROD.vpc_id
+  vpc-gateway-endpoint = "S3-PCI-CHCS-VPC-NON-PROD-ENDPOINT"
+  gateway_vpc_endpoints = {
+    "s3" = {
+      name = "s3"
+      policy = jsonencode({
+        Version = "2012-10-17"
+        Statement = [
+          {
+            Action = [
+              "s3:*",
+            ]
+            Effect    = "Allow"
+            Principal = "*"
+            Resource  = "*"
+          },
+        ]
+      })
+      route_table_ids     = module.PCI-CHCS-VPC-NON-PROD.private_route_table_ids
+    }
+  }
+
+ providers = {
+    aws = aws.chcs-non-prod
+   }
+}
+
+module "HIPAA-CHCS-VPC-NON-PROD-ENDPOINT" {
+  source = "./../modules/vpc-endpoints"
+  vpc_id = module.HIPAA-CHCS-VPC-NON-PROD.vpc_id
+  vpc-gateway-endpoint = "S3-HIPAA-CHCS-VPC-NON-PROD-ENDPOINT"
+  gateway_vpc_endpoints = {
+    "s3" = {
+      name = "s3"
+      policy = jsonencode({
+        Version = "2012-10-17"
+        Statement = [
+          {
+            Action = [
+              "s3:*",
+            ]
+            Effect    = "Allow"
+            Principal = "*"
+            Resource  = "*"
+          },
+        ]
+      })
+      route_table_ids     = module.HIPAA-CHCS-VPC-NON-PROD.private_route_table_ids
+    }
+  }
+ providers = {
+    aws = aws.chcs-non-prod
+   }
+}
+
+module "DEV-QA-UAT-CHCS-VPC-NON-PROD-ENDPOINT" {
+  source = "./../modules/vpc-endpoints"
+  vpc_id = module.DEV-QA-UAT-CHCS-VPC-NON-PROD.vpc_id
+  vpc-gateway-endpoint = "S3-DEV-QA-UAT-CHCS-VPC-NON-PROD-ENDPOINT"
+  gateway_vpc_endpoints = {
+    "S3-DEV-QA-UAT-CHCS-VPC-NON-PROD-ENDPOINT" = {
+      name = "s3"
+      policy = jsonencode({
+        Version = "2012-10-17"
+        Statement = [
+          {
+            Action = [
+              "s3:*",
+            ]
+            Effect    = "Allow"
+            Principal = "*"
+            Resource  = "*"
+          },
+        ]
+      })
+      route_table_ids     = module.DEV-QA-UAT-CHCS-VPC-NON-PROD.private_route_table_ids
+    }
+  }
+ providers = {
+    aws = aws.chcs-non-prod
+   }
+}
+
