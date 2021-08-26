@@ -1,0 +1,2 @@
+locals {
+  transit_route_cidr = csvdecode(file("${path.module}/csv/transit_gateway_route.csv}
